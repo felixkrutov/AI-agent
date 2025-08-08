@@ -26,18 +26,14 @@ services:
     build: ./backend
     restart: unless-stopped
     env_file: .env
-    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    environment:
-      - HTTP_PROXY=socks5://host.docker.internal:9999
-      - HTTPS_PROXY=socks5://host.docker.internal:9999
-      - NO_PROXY=localhost,127.0.0.1,redis,db
-    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+    command: proxychains4 -q uvicorn main:app --host 0.0.0.0 --port 8000
     volumes:
       - ./backend:/app
       - ./config.json:/app_config/config.json
       - ./chat_histories:/app/chat_histories
+      - ./proxychains.conf:/etc/proxychains.conf:ro
     depends_on:
       - redis
       - db
@@ -64,19 +60,15 @@ services:
     build: ./worker
     restart: unless-stopped
     env_file: .env
-    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    environment:
-      - HTTP_PROXY=socks5://host.docker.internal:9999
-      - HTTPS_PROXY=socks5://host.docker.internal:9999
-      - NO_PROXY=localhost,127.0.0.1,redis,db
-    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+    command: proxychains4 -q python main.py
     volumes:
       - ./worker:/app
       - ./backend/kb_service:/app/kb_service
       - ./config.json:/app_config/config.json
       - ./chat_histories:/app/chat_histories
+      - ./proxychains.conf:/etc/proxychains.conf:ro
     depends_on:
       - redis
       - db
