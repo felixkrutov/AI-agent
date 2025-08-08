@@ -1,81 +1,26 @@
-version: '3.8'
+# 1) бэкап
+cp docker-compose.yml docker-compose.yml.bak.$(date +%s)
 
-services:
-  nginx:
-    container_name: engineering-hub-nginx
-    build: ./nginx
-    restart: unless-stopped
-    ports:
-      - "8080:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - backend
-      - frontend
+# 2) заменить SOCKS5 на наш HTTP-прокси S1
+sed -i 's#socks5h://host.docker.internal:9090#http://51.158.76.113:9999#g' docker-compose.yml
 
-  frontend:
-    container_name: engineering-hub-frontend
-    build: ./frontend
-    restart: unless-stopped
-    volumes:
-      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+# 3) добавить NO_PROXY (чтобы внутренние вызовы не шли через прокси)
+# если строк уже нет — просто добавим под каждым environment: блока backend и worker
+awk '
+/^  backend:$/,/^  db:$/{
+  if ($0 ~ /^    environment:/ && b==0) {print; print "      NO_PROXY: \"localhost,127.0.0.1,nginx,frontend,db,redis,engineering-hub-nginx,engineering-hub-frontend,engineering-hub-db,engineering-hub-redis\""; print "      no_proxy: \"localhost,127.0.0.1,nginx,frontend,db,redis,engineering-hub-nginx,engineering-hub-frontend,engineering-hub-db,engineering-hub-redis\""; b=1; next}
+  print; next
+}
+/^  worker:$/,/^volumes:$/{
+  if ($0 ~ /^    environment:/ && w==0) {print; print "      NO_PROXY: \"localhost,127.0.0.1,nginx,frontend,db,redis,engineering-hub-nginx,engineering-hub-frontend,engineering-hub-db,engineering-hub-redis\""; print "      no_proxy: \"localhost,127.0.0.1,nginx,frontend,db,redis,engineering-hub-nginx,engineering-hub-frontend,engineering-hub-db,engineering-hub-redis\""; w=1; next}
+  print; next
+}
+{print}
+' docker-compose.yml > docker-compose.tmp && mv docker-compose.tmp docker-compose.yml
 
-  backend:
-    container_name: engineering-hub-backend
-    build: ./backend
-    restart: unless-stopped
-    env_file: .env
-    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
-    environment:
-      # Заставляем все HTTP/HTTPS запросы идти через наш прокси
-      HTTPS_PROXY: "socks5h://host.docker.internal:9090"
-      HTTP_PROXY: "socks5h://host.docker.internal:9090"
-    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - ./backend:/app
-      - ./config.json:/app_config/config.json
-      - ./chat_histories:/app/chat_histories
-      # - ./proxychains.conf:/etc/proxychains.conf:ro # Эта строка больше не нужна
+# 4) перезапустить два сервиса
+docker compose up -d backend worker 2>/dev/null || docker-compose up -d backend worker
 
-  db:
-    container_name: engineering-hub-db
-    image: postgres:15-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  redis:
-    container_name: engineering-hub-redis
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: redis-server --save 60 1 --loglevel warning
-
-  worker:
-    container_name: engineering-hub-worker
-    build: ./worker
-    restart: unless-stopped
-    env_file: .env
-    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
-    environment:
-      # То же самое для воркера
-      HTTPS_PROXY: "socks5h://host.docker.internal:9090"
-      HTTP_PROXY: "socks5h://host.docker.internal:9090"
-    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - ./worker:/app
-      - ./backend/kb_service:/app/kb_service
-      - ./config.json:/app_config/config.json
-      - ./chat_histories:/app/chat_histories
-      # - ./proxychains.conf:/etc/proxychains.conf:ro # И эта строка больше не нужна
-
-volumes:
-  postgres_data:
-    name: engineering-hub_postgres_data
+# 5) показать последние строки логов
+docker compose logs backend --tail=120 2>/dev/null || docker-compose logs backend --tail=120
+docker compose logs worker  --tail=120 2>/dev/null || docker-compose logs worker  --tail=120
