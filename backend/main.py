@@ -7,6 +7,8 @@ import asyncio
 from datetime import datetime
 import google.generativeai as genai
 import google.generativeai.protos as gap
+from google.ai.generativelanguage_v1beta.services.generative_service.async_client import GenerativeServiceAsyncClient
+from google.ai.generativelanguage_v1beta.services.embedding_service.async_client import EmbeddingServiceAsyncClient
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -53,7 +55,10 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable not set!")
 
-genai.configure(api_key=GEMINI_API_KEY, transport="rest", client_options={"proxy": PROXY_URL})
+# Explicitly configure clients to use REST transport with proxy
+generative_client = GenerativeServiceAsyncClient(transport="rest", client_options={"proxy": PROXY_URL})
+embedding_client = EmbeddingServiceAsyncClient(transport="rest", client_options={"proxy": PROXY_URL})
+genai.configure(api_key=GEMINI_API_KEY, client_options={"proxy": PROXY_URL}, generative_client=generative_client, embedding_client=embedding_client)
 
 # --- Dynamic Controller Client Initialization ---
 CONTROLLER_PROVIDER = os.getenv("CONTROLLER_PROVIDER", "openai").lower()
@@ -159,7 +164,7 @@ Analyze the user's query. If it explicitly or implicitly refers to one of the fi
 If the query does not refer to any specific file, respond with the exact word "None". Do not provide any other text or explanation.
 """
     try:
-        context_model = genai.GenerativeModel('gemini-2.5-flash', client_options={"proxy": PROXY_URL})
+        context_model = genai.GenerativeModel('gemini-2.5-flash')
         # Use the retry helper for the API call
         response = await run_with_retry(context_model.generate_content_async, prompt)
         
