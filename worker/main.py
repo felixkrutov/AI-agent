@@ -1,4 +1,3 @@
-# worker/app/main.py
 import os
 import time
 import logging
@@ -13,11 +12,14 @@ from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
 from google.api_core.exceptions import ResourceExhausted, InternalServerError
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import httpx
 
 # --- Setup Logging and Environment ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 load_dotenv()
+
+PROXY_URL = "socks5://host.docker.internal:9999"
 
 # --- Load all necessary components from kb_service ---
 # The docker-compose volume mount makes this possible: `...:/app/kb_service`
@@ -115,7 +117,7 @@ kb_indexer.build_index()  # Build index on worker startup
 # Gemini (Executor)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+    genai.configure(api_key=GEMINI_API_KEY, transport="rest", client_options={"proxy": PROXY_URL})
 else:
     raise ValueError("GEMINI_API_KEY environment variable not set!")
 
@@ -123,7 +125,11 @@ else:
 CONTROLLER_PROVIDER = os.getenv("CONTROLLER_PROVIDER", "openai").lower()
 CONTROLLER_API_KEY = os.getenv("OPENROUTER_API_KEY") if CONTROLLER_PROVIDER == "openrouter" else os.getenv("OPENAI_API_KEY")
 CONTROLLER_BASE_URL = "https://openrouter.ai/api/v1" if CONTROLLER_PROVIDER == "openrouter" else "https://api.openai.com/v1"
-controller_client = AsyncOpenAI(base_url=CONTROLLER_BASE_URL, api_key=CONTROLLER_API_KEY) if CONTROLLER_API_KEY else None
+controller_client = AsyncOpenAI(
+    base_url=CONTROLLER_BASE_URL, 
+    api_key=CONTROLLER_API_KEY,
+    http_client=httpx.AsyncClient(proxies={"all://": PROXY_URL})
+) if CONTROLLER_API_KEY else None
 if controller_client:
     logger.info(f"Controller configured to use {CONTROLLER_PROVIDER}.")
 else:
@@ -197,7 +203,7 @@ async def determine_file_context(user_message: str, all_files: List[Dict]) -> Op
     files_summary = "\n".join([f"- Имя файла: '{f.get('name', 'N/A')}', ID: '{f.get('id', 'N/A')}'" for f in all_files])
     prompt = f"You are a classification assistant. Your task is to determine if a user's query refers to a specific file from a provided list. Here is the list of available files:\n\n<file_list>\n{files_summary}\n</file_list>\n\nUser's query: <query>{user_message}</query>\n\nIf the query explicitly or implicitly refers to one of the files from the list, respond with ONLY the file's ID from the list. If it does not refer to any specific file, or if you are unsure, respond with 'None'."
     try:
-        context_model = genai.GenerativeModel('gemini-2.5-flash')
+        context_model = genai.GenerativeModel('gemini-2.5-flash', client_options={"proxy": PROXY_URL})
         response = await run_with_retry(context_model.generate_content_async, prompt)
         file_id_match = response.text.strip()
         if file_id_match in {f.get('id') for f in all_files}:
@@ -235,7 +241,8 @@ async def handle_complex_task(job_id: str, request_payload: dict, r_client: redi
     model = genai.GenerativeModel(
         model_name=config.executor.model_name,
         tools=[analyze_document, search_knowledge_base, list_all_files_summary],
-        system_instruction=config.executor.system_prompt
+        system_instruction=config.executor.system_prompt,
+        client_options={"proxy": PROXY_URL}
     )
     
     # 2. Load and prepare the chat history.
@@ -379,7 +386,7 @@ async def handle_simple_chat(job_id: str, request_payload: dict, r_client: redis
     sanitized_history = load_and_prepare_history(conversation_id)
 
     update_job_status(r_client, job_id, new_thought="Инициализация модели 'gemini-2.5-flash'...")
-    model = genai.GenerativeModel(model_name='gemini-2.5-flash')
+    model = genai.GenerativeModel(model_name='gemini-2.5-flash', client_options={"proxy": PROXY_URL})
     chat_session = model.start_chat(history=sanitized_history)
 
     update_job_status(r_client, job_id, new_thought="Отправка запроса в модель...")
