@@ -1,25 +1,6 @@
 # backend/app/main.py
 import logging
 import os
-# --- SOCKS PROXY ACTIVATION ---
-import socket
-import socks
-import logging
-
-proxy_url = os.environ.get('HTTPS_PROXY') or os.environ.get('HTTP_PROXY')
-if proxy_url and proxy_url.startswith('socks5://'):
-    try:
-        # Parse URL: socks5://host:port
-        parts = proxy_url.replace('socks5://', '').split(':')
-        proxy_host = parts[0]
-        proxy_port = int(parts[1])
-        # Set the default socket to use the SOCKS proxy for all traffic
-        socks.set_default_proxy(socks.SOCKS5, proxy_host, proxy_port)
-        socket.socket = socks.socksocket
-        logging.info(f"SOCKS5 proxy activated for all outgoing traffic via {proxy_host}:{proxy_port}")
-    except Exception as e:
-        logging.error(f"Failed to activate SOCKS5 proxy: {e}")
-# --- END OF SOCKS PROXY ACTIVATION ---
 import json
 import uuid
 import re
