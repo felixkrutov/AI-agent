@@ -63,4 +63,13 @@ services:
     volumes:
       - ./worker:/app
       - ./backend/kb_service:/app/kb_service
-      - ./config.json:/app_config/
+      - ./config.json:/app_config/config.json
+      - ./chat_histories:/app/chat_histories
+      - ./proxychains.conf:/etc/proxychains.conf:ro
+    depends_on:
+      - redis
+      - db
+
+volumes:
+  postgres_data:
+    name: engineering-hub_postgres_data
