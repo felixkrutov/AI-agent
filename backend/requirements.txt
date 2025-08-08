@@ -1,5 +1,4 @@
-# backend/requirements.txt
-
+httpx[socks]
 fastapi
 uvicorn[standard]
 pydantic
