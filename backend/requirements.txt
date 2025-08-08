@@ -17,3 +17,4 @@ langchain
 openai
 redis
 PySocks
+google-cloud-aiplatform
