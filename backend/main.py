@@ -1,4 +1,3 @@
-# backend/app/main.py
 import logging
 import os
 import json
@@ -19,6 +18,7 @@ from google.api_core.exceptions import ResourceExhausted, InternalServerError
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from openai import AsyncOpenAI
 import redis
+import httpx
 
 from kb_service.connector import MockConnector
 from kb_service.yandex_connector import YandexDiskConnector
@@ -29,6 +29,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 load_dotenv()
+
+PROXY_URL = "socks5://host.docker.internal:9999"
+http_client_proxy = httpx.AsyncProxy(proxy_url=PROXY_URL)
 
 # --- Redis Client Initialization ---
 redis_client = redis.Redis(host=os.getenv("REDIS_HOST", "redis"), port=6379, db=0, decode_responses=True)
@@ -50,7 +53,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable not set!")
 
-genai.configure(api_key=GEMINI_API_KEY)
+genai.configure(api_key=GEMINI_API_KEY, transport="rest", client_options={"proxy": PROXY_URL})
 
 # --- Dynamic Controller Client Initialization ---
 CONTROLLER_PROVIDER = os.getenv("CONTROLLER_PROVIDER", "openai").lower()
@@ -73,6 +76,7 @@ else:
     controller_client = AsyncOpenAI(
         base_url=CONTROLLER_BASE_URL,
         api_key=CONTROLLER_API_KEY,
+        http_client=httpx.AsyncClient(proxies={"all://": PROXY_URL})
     )
 
 # --- Agent Tools Definition ---
@@ -155,7 +159,7 @@ Analyze the user's query. If it explicitly or implicitly refers to one of the fi
 If the query does not refer to any specific file, respond with the exact word "None". Do not provide any other text or explanation.
 """
     try:
-        context_model = genai.GenerativeModel('gemini-2.5-flash')
+        context_model = genai.GenerativeModel('gemini-2.5-flash', client_options={"proxy": PROXY_URL})
         # Use the retry helper for the API call
         response = await run_with_retry(context_model.generate_content_async, prompt)
         
