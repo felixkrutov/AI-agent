@@ -5,6 +5,8 @@ import json
 import redis
 import google.generativeai as genai
 import google.generativeai.protos as gap
+from google.ai.generativelanguage_v1beta.services.generative_service.async_client import GenerativeServiceAsyncClient
+from google.ai.generativelanguage_v1beta.services.embedding_service.async_client import EmbeddingServiceAsyncClient
 from openai import AsyncOpenAI
 import asyncio
 from dotenv import load_dotenv
@@ -117,7 +119,10 @@ kb_indexer.build_index()  # Build index on worker startup
 # Gemini (Executor)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY, transport="rest", client_options={"proxy": PROXY_URL})
+    # Explicitly configure clients to use REST transport with proxy
+    generative_client = GenerativeServiceAsyncClient(transport="rest", client_options={"proxy": PROXY_URL})
+    embedding_client = EmbeddingServiceAsyncClient(transport="rest", client_options={"proxy": PROXY_URL})
+    genai.configure(api_key=GEMINI_API_KEY, client_options={"proxy": PROXY_URL}, generative_client=generative_client, embedding_client=embedding_client)
 else:
     raise ValueError("GEMINI_API_KEY environment variable not set!")
 
@@ -203,7 +208,7 @@ async def determine_file_context(user_message: str, all_files: List[Dict]) -> Op
     files_summary = "\n".join([f"- Имя файла: '{f.get('name', 'N/A')}', ID: '{f.get('id', 'N/A')}'" for f in all_files])
     prompt = f"You are a classification assistant. Your task is to determine if a user's query refers to a specific file from a provided list. Here is the list of available files:\n\n<file_list>\n{files_summary}\n</file_list>\n\nUser's query: <query>{user_message}</query>\n\nIf the query explicitly or implicitly refers to one of the files from the list, respond with ONLY the file's ID from the list. If it does not refer to any specific file, or if you are unsure, respond with 'None'."
     try:
-        context_model = genai.GenerativeModel('gemini-2.5-flash', client_options={"proxy": PROXY_URL})
+        context_model = genai.GenerativeModel('gemini-2.5-flash')
         response = await run_with_retry(context_model.generate_content_async, prompt)
         file_id_match = response.text.strip()
         if file_id_match in {f.get('id') for f in all_files}:
@@ -241,8 +246,7 @@ async def handle_complex_task(job_id: str, request_payload: dict, r_client: redi
     model = genai.GenerativeModel(
         model_name=config.executor.model_name,
         tools=[analyze_document, search_knowledge_base, list_all_files_summary],
-        system_instruction=config.executor.system_prompt,
-        client_options={"proxy": PROXY_URL}
+        system_instruction=config.executor.system_prompt
     )
     
     # 2. Load and prepare the chat history.
@@ -386,7 +390,7 @@ async def handle_simple_chat(job_id: str, request_payload: dict, r_client: redis
     sanitized_history = load_and_prepare_history(conversation_id)
 
     update_job_status(r_client, job_id, new_thought="Инициализация модели 'gemini-2.5-flash'...")
-    model = genai.GenerativeModel(model_name='gemini-2.5-flash', client_options={"proxy": PROXY_URL})
+    model = genai.GenerativeModel(model_name='gemini-2.5-flash')
     chat_session = model.start_chat(history=sanitized_history)
 
     update_job_status(r_client, job_id, new_thought="Отправка запроса в модель...")
