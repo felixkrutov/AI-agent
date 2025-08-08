@@ -27,7 +27,6 @@ services:
     env_file: .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: sh -c './wait-for-it.sh db:5432 -- uvicorn main:app --host 0.0.0.0 --port 8000'
     volumes:
       - ./backend:/app
       - ./config.json:/app_config/config.json
@@ -61,17 +60,7 @@ services:
     env_file: .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: python main.py
     volumes:
       - ./worker:/app
       - ./backend/kb_service:/app/kb_service
-      - ./config.json:/app_config/config.json
-      - ./chat_histories:/app/chat_histories
-      - ./proxychains.conf:/etc/proxychains.conf:ro
-    depends_on:
-      - redis
-      - db
-
-volumes:
-  postgres_data:
-    name: engineering-hub_postgres_data
+      - ./config.json:/app_config/
