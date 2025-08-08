@@ -1,3 +1,4 @@
+# docker-compose.yml
 version: '3.8'
 
 services:
@@ -31,6 +32,7 @@ services:
     environment:
       - HTTP_PROXY=socks5://host.docker.internal:9999
       - HTTPS_PROXY=socks5://host.docker.internal:9999
+      - NO_PROXY=localhost,127.0.0.1,redis,db
     # --- КОНЕЦ ИЗМЕНЕНИЙ ---
     volumes:
       - ./backend:/app
@@ -68,6 +70,7 @@ services:
     environment:
       - HTTP_PROXY=socks5://host.docker.internal:9999
       - HTTPS_PROXY=socks5://host.docker.internal:9999
+      - NO_PROXY=localhost,127.0.0.1,redis,db
     # --- КОНЕЦ ИЗМЕНЕНИЙ ---
     volumes:
       - ./worker:/app
