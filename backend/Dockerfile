@@ -1,3 +1,4 @@
+# backend/Dockerfile
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -7,7 +8,7 @@ RUN mv /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list.d/debian.sou
 RUN echo "deb http://deb.debian.org/debian bookworm main contrib non-free" > /etc/apt/sources.list
 
 # Install dependencies
-RUN apt-get update && apt-get install -y bash netcat-openbsd libmagic1 unrar && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y bash netcat-openbsd libmagic1 unrar proxychains4 --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
 COPY ./requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
