@@ -1,3 +1,4 @@
+from google.api_core.client_options import ClientOptions
 import os
 import time
 import logging
@@ -6,7 +7,7 @@ import redis
 import google.generativeai as genai
 import google.generativeai.protos as gap
 from google.ai.generativelanguage_v1beta.services.generative_service.async_client import GenerativeServiceAsyncClient
-from google.ai.generativelanguage_v1beta.services.embedding_service.async_client import EmbeddingServiceAsyncClient
+from google.ai.generativelanguage_v1beta.services.generative_service import GenerativeServiceAsyncClient as EmbeddingServiceAsyncClient
 from openai import AsyncOpenAI
 import asyncio
 from dotenv import load_dotenv
@@ -120,9 +121,9 @@ kb_indexer.build_index()  # Build index on worker startup
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     # Explicitly configure clients to use REST transport with proxy
-    generative_client = GenerativeServiceAsyncClient(transport="rest", client_options={"proxy": PROXY_URL})
-    embedding_client = EmbeddingServiceAsyncClient(transport="rest", client_options={"proxy": PROXY_URL})
-    genai.configure(api_key=GEMINI_API_KEY, client_options={"proxy": PROXY_URL}, generative_client=generative_client, embedding_client=embedding_client)
+    generative_client = None
+    embedding_client = None
+    genai.configure(api_key=GEMINI_API_KEY)
 else:
     raise ValueError("GEMINI_API_KEY environment variable not set!")
 

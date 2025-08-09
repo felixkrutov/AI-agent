@@ -7,8 +7,8 @@ import asyncio
 from datetime import datetime
 import google.generativeai as genai
 import google.generativeai.protos as gap
-from google.ai.generativelanguage_v1beta.services.generative_service.async_client import GenerativeServiceAsyncClient
-from google.ai.generativelanguage_v1beta.services.embedding_service.async_client import EmbeddingServiceAsyncClient
+from google.ai.generativelanguage_v1beta.services.generative_service import GenerativeServiceAsyncClient
+from google.api_core.client_options import ClientOptions
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,8 +32,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-PROXY_URL = "socks5://host.docker.internal:9999"
-http_client_proxy = httpx.AsyncProxy(proxy_url=PROXY_URL)
+PROXY_URL = "http://51.158.76.113:9999"
 
 # --- Redis Client Initialization ---
 redis_client = redis.Redis(host=os.getenv("REDIS_HOST", "redis"), port=6379, db=0, decode_responses=True)
@@ -56,9 +55,9 @@ if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable not set!")
 
 # Explicitly configure clients to use REST transport with proxy
-generative_client = GenerativeServiceAsyncClient(transport="rest", client_options={"proxy": PROXY_URL})
-embedding_client = EmbeddingServiceAsyncClient(transport="rest", client_options={"proxy": PROXY_URL})
-genai.configure(api_key=GEMINI_API_KEY, client_options={"proxy": PROXY_URL}, generative_client=generative_client, embedding_client=embedding_client)
+generative_client = GenerativeServiceAsyncClient(transport="rest", client_options=ClientOptions(api_key=GEMINI_API_KEY))
+embedding_client = generative_client
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 # --- Dynamic Controller Client Initialization ---
 CONTROLLER_PROVIDER = os.getenv("CONTROLLER_PROVIDER", "openai").lower()
@@ -183,7 +182,7 @@ If the query does not refer to any specific file, respond with the exact word "N
         return None
 
 
-app = FastAPI()
+app = FastAPI(title="Engineering Hub API", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
 def update_kb_index() -> None:
     kb_indexer.build_index()

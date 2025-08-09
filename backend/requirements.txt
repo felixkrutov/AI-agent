@@ -18,3 +18,4 @@ openai
 redis
 PySocks
 google-cloud-aiplatform
+google-ai-generativelanguage

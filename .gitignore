@@ -34,3 +34,7 @@ Thumbs.db
 .idea/
 .vscode/
 chat_histories/
+
+# local junk
+FETCH_HEAD
+*.bak*
