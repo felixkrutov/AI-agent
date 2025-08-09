@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  backend:
+    env_file:
+      - .env
+      - proxy.env
+  worker:
+    env_file:
+      - .env
+      - proxy.env

@@ -38,3 +38,4 @@ chat_histories/
 # local junk
 FETCH_HEAD
 *.bak*
+proxy.env
