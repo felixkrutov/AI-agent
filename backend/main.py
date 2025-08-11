@@ -1,3 +1,5 @@
+# backend/main.py
+
 import logging
 import os
 import json
@@ -5,6 +7,12 @@ import uuid
 import re
 import asyncio
 from datetime import datetime
+
+# --- НОВЫЕ ИМПОРТЫ ДЛЯ АВТОРИЗАЦИИ ---
+from fastapi import Depends
+from auth import router as auth_router, get_current_active_user, User
+# --- КОНЕЦ НОВЫХ ИМПОРТОВ ---
+
 import google.generativeai as genai
 import google.generativeai.protos as gap
 from google.ai.generativelanguage_v1beta.services.generative_service import GenerativeServiceAsyncClient
@@ -184,6 +192,10 @@ If the query does not refer to any specific file, respond with the exact word "N
 
 app = FastAPI(title="Engineering Hub API", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
+# --- НОВОЕ: Подключение роутера для авторизации ---
+app.include_router(auth_router, prefix="/api", tags=["Authentication"])
+
+
 def update_kb_index() -> None:
     kb_indexer.build_index()
 
@@ -272,20 +284,20 @@ def save_config(config: AppConfig):
         json.dump(config.model_dump(), f, indent=2, ensure_ascii=False)
 
 @app.get("/api/v1/config", response_model=AppConfig)
-async def get_config():
+async def get_config(current_user: User = Depends(get_current_active_user)):
     return load_config()
 
 @app.post("/api/v1/config", status_code=status.HTTP_200_OK)
-async def set_config(config: AppConfig):
+async def set_config(config: AppConfig, current_user: User = Depends(get_current_active_user)):
     save_config(config)
     return {"status": "success", "message": "Configuration saved."}
 
 @app.get("/api/kb/files", response_model=List[Dict])
-async def get_all_kb_files():
+async def get_all_kb_files(current_user: User = Depends(get_current_active_user)):
     return kb_indexer.get_all_files()
 
 @app.get("/api/v1/chats", response_model=List[ChatInfo])
-async def list_chats():
+async def list_chats(current_user: User = Depends(get_current_active_user)):
     chats = []
     os.makedirs(HISTORY_DIR, exist_ok=True)
     for filename in os.listdir(HISTORY_DIR):
@@ -311,7 +323,7 @@ async def list_chats():
     return sorted(chats, key=lambda item: os.path.getmtime(os.path.join(HISTORY_DIR, f"{item.id}.json")), reverse=True)
 
 @app.post("/api/v1/chats", response_model=ChatInfo, status_code=status.HTTP_201_CREATED)
-async def create_new_chat(request: CreateChatRequest):
+async def create_new_chat(request: CreateChatRequest, current_user: User = Depends(get_current_active_user)):
     conversation_id = str(uuid.uuid4())
     history_file_path = os.path.join(HISTORY_DIR, f"{conversation_id}.json")
     title_file_path = os.path.join(HISTORY_DIR, f"{conversation_id}.title.txt")
@@ -324,7 +336,7 @@ async def create_new_chat(request: CreateChatRequest):
         raise HTTPException(status_code=500, detail="Failed to create chat files.")
 
 @app.post("/api/v1/jobs", response_model=JobCreationResponse, status_code=status.HTTP_202_ACCEPTED)
-async def create_chat_job(request: ChatRequest):
+async def create_chat_job(request: ChatRequest, current_user: User = Depends(get_current_active_user)):
     job_id = f"job:{uuid.uuid4()}"
     job_data = request.model_dump_json()
 
@@ -375,7 +387,7 @@ async def create_chat_job(request: ChatRequest):
     return JobCreationResponse(job_id=job_id)
 
 @app.get("/api/v1/jobs/{job_id}/status")
-async def get_job_status(job_id: str):
+async def get_job_status(job_id: str, current_user: User = Depends(get_current_active_user)):
     job_data = redis_client.hgetall(job_id)
     if not job_data:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -385,7 +397,7 @@ async def get_job_status(job_id: str):
     return JSONResponse(content=job_data)
 
 @app.post("/api/v1/jobs/{job_id}/cancel", status_code=status.HTTP_200_OK)
-async def cancel_job(job_id: str):
+async def cancel_job(job_id: str, current_user: User = Depends(get_current_active_user)):
     if not redis_client.exists(job_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     
@@ -395,7 +407,7 @@ async def cancel_job(job_id: str):
     return JSONResponse(content={"status": "cancellation_requested", "job_id": job_id})
 
 @app.get("/api/v1/chats/{conversation_id}/active_job", status_code=200)
-async def get_active_job_for_convo(conversation_id: str):
+async def get_active_job_for_convo(conversation_id: str, current_user: User = Depends(get_current_active_user)):
     job_id_key = f"active_job_for_convo:{conversation_id}"
     job_id = redis_client.get(job_id_key)
     
@@ -411,7 +423,7 @@ async def get_active_job_for_convo(conversation_id: str):
     return {"job_id": job_id}
 
 @app.get("/api/v1/chats/{conversation_id}")
-async def get_chat_history(conversation_id: str):
+async def get_chat_history(conversation_id: str, current_user: User = Depends(get_current_active_user)):
     history_file_path = os.path.join(HISTORY_DIR, f"{conversation_id}.json")
     if not os.path.exists(history_file_path):
         raise HTTPException(status_code=404, detail="Chat history not found.")
@@ -455,7 +467,7 @@ async def get_chat_history(conversation_id: str):
         return []
 
 @app.delete("/api/v1/chats/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_chat(conversation_id: str):
+async def delete_chat(conversation_id: str, current_user: User = Depends(get_current_active_user)):
     history_file_path = os.path.join(HISTORY_DIR, f"{conversation_id}.json")
     title_file_path = os.path.join(HISTORY_DIR, f"{conversation_id}.title.txt")
     if not os.path.exists(history_file_path):
@@ -468,7 +480,7 @@ async def delete_chat(conversation_id: str):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error deleting chat files: {e}")
 
 @app.put("/api/v1/chats/{conversation_id}")
-async def rename_chat(conversation_id: str, request: RenameRequest):
+async def rename_chat(conversation_id: str, request: RenameRequest, current_user: User = Depends(get_current_active_user)):
     history_file_path = os.path.join(HISTORY_DIR, f"{conversation_id}.json")
     if not os.path.exists(history_file_path):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found, cannot rename.")
