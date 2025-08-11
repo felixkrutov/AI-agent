@@ -814,3 +814,17 @@ body[data-theme="light"] .app-wrapper,
   font-size: 0.8rem !important;
   flex-shrink: 0; /* Prevents button from shrinking */
 }
+.logout-btn {
+  background: none;
+  border: none;
+  color: var(--sidebar-text-color);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 8px;
+  border-radius: 5px;
+  line-height: 1; /* Для выравнивания иконки */
+}
+
+.logout-btn:hover {
+  background-color: var(--sidebar-hover-bg);
+}
