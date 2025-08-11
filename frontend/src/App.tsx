@@ -1,57 +1,32 @@
+// frontend/src/App.tsx
+
 import React, { useState, useEffect, useRef } from 'react';
 import { ClipLoader } from 'react-spinners';
-import { FaPaperPlane, FaBars, FaTimes, FaPencilAlt, FaTrashAlt, FaSun, FaMoon, FaCog } from 'react-icons/fa';
+import { FaPaperPlane, FaBars, FaTimes, FaPencilAlt, FaTrashAlt, FaSun, FaMoon, FaCog, FaSignOutAlt } from 'react-icons/fa';
 import { v4 as uuidv4 } from 'uuid';
 import AgentThoughts, { Thought } from './components/AgentThoughts';
 import './App.css';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/hub/api';
+// --- ADDED: Новые импорты для авторизации ---
+import { useAuth } from './context/AuthContext';
+import LoginPage from './pages/LoginPage';
+import apiClient from './api/client';
+// ------------------------------------------
 
-interface Chat {
-  id: string;
-  title: string;
-}
+// Интерфейсы остаются без изменений
+interface Chat { id: string; title: string; }
+interface Message { id:string; jobId?: string; role: 'user' | 'model' | 'error'; content: string; displayedContent: string; thinking_steps?: Thought[]; sources?: string[]; }
+interface ModalState { visible: boolean; title: string; message: string; showInput: boolean; inputValue: string; confirmText: string; onConfirm: (value: string | boolean | null) => void; }
+interface KnowledgeBaseFile { id: string; name: string; }
+interface AgentSettings { model_name: string; system_prompt: string; }
+interface AppConfig { executor: AgentSettings; controller: AgentSettings; }
 
-interface Message {
-  id:string;
-  jobId?: string; // Unique ID for the currently running job
-  role: 'user' | 'model' | 'error';
-  content: string;
-  displayedContent: string;
-  thinking_steps?: Thought[];
-  sources?: string[];
-}
-
-interface ModalState {
-  visible: boolean;
-  title: string;
-  message: string;
-  showInput: boolean;
-  inputValue: string;
-  confirmText: string;
-  onConfirm: (value: string | boolean | null) => void;
-}
-
-interface KnowledgeBaseFile {
-  id: string;
-  name: string;
-}
-
-// --- New Nested Configuration Types ---
-interface AgentSettings {
-  model_name: string;
-  system_prompt: string;
-}
-
-interface AppConfig {
-  executor: AgentSettings;
-  controller: AgentSettings;
-}
-
-const user = { username: 'Engineer', theme: 'dark' };
+const user = { username: 'Engineer' }; // Оставим пока для отображения имени
 
 function App() {
-  const [theme, setTheme] = useState(user.theme);
+  const { isAuthenticated, isLoading: isAuthLoading, logout } = useAuth();
+
+  const [theme, setTheme] = useState('dark');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chats, setChats] = useState<Chat[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -60,24 +35,16 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [isAgentMode, setIsAgentMode] = useState(false);
-  
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState('ai');
-
-  // --- Refactored State for Nested Config ---
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [dirtyConfig, setDirtyConfig] = useState<AppConfig | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  
   const [kbFiles, setKbFiles] = useState<KnowledgeBaseFile[]>([]);
   const [isKbFilesLoading, setIsKbFilesLoading] = useState(false);
   const [kbFilesError, setKbFilesError] = useState<string | null>(null);
-
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
-
-  const [modalState, setModalState] = useState<ModalState>({
-    visible: false, title: '', message: '', showInput: false, inputValue: '', confirmText: 'OK', onConfirm: () => {},
-  });
+  const [modalState, setModalState] = useState<ModalState>({ visible: false, title: '', message: '', showInput: false, inputValue: '', confirmText: 'OK', onConfirm: () => {}, });
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const userInputRef = useRef<HTMLTextAreaElement>(null);
@@ -86,7 +53,7 @@ function App() {
 
   useEffect(() => {
     if (isSettingsModalOpen && config) {
-        setDirtyConfig(JSON.parse(JSON.stringify(config))); // Deep copy
+        setDirtyConfig(JSON.parse(JSON.stringify(config)));
     }
   }, [isSettingsModalOpen, config]);
 
@@ -95,10 +62,8 @@ function App() {
       setIsKbFilesLoading(true);
       setKbFilesError(null);
       try {
-        const response = await fetch(`${API_BASE_URL}/kb/files`);
-        if (!response.ok) throw new Error('Failed to fetch file list');
-        const data = await response.json();
-        setKbFiles(data.map((file: any) => ({ id: file.id, name: file.name })));
+        const response = await apiClient.get('/kb/files');
+        setKbFiles(response.data.map((file: any) => ({ id: file.id, name: file.name })));
       } catch (error) {
         console.error("Failed to fetch KB files:", error);
         setKbFilesError("Не удалось загрузить список файлов.");
@@ -107,16 +72,15 @@ function App() {
       }
     };
 
-    if (isSettingsModalOpen && activeSettingsTab === 'db') {
+    if (isAuthenticated && isSettingsModalOpen && activeSettingsTab === 'db') {
       fetchFiles();
     }
-  }, [isSettingsModalOpen, activeSettingsTab]);
+  }, [isAuthenticated, isSettingsModalOpen, activeSettingsTab]);
 
   const loadConfig = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/v1/config`);
-      if (!response.ok) throw new Error('Failed to load config');
-      const data: AppConfig = await response.json();
+      const response = await apiClient.get('/v1/config');
+      const data: AppConfig = response.data;
       setConfig(data);
       setDirtyConfig(JSON.parse(JSON.stringify(data)));
     } catch (error) {
@@ -128,12 +92,7 @@ function App() {
     if (!dirtyConfig) return;
     setIsSaving(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/v1/config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(dirtyConfig),
-      });
-      if (!response.ok) throw new Error('Failed to save settings');
+      await apiClient.post('/v1/config', dirtyConfig);
       setConfig(JSON.parse(JSON.stringify(dirtyConfig)));
     } catch(error) {
       console.error("Save settings failed:", error);
@@ -151,10 +110,8 @@ function App() {
   
   const loadChats = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/v1/chats`);
-      if (!response.ok) throw new Error('Failed to fetch chats');
-      const data = await response.json();
-      setChats(data);
+      const response = await apiClient.get('/v1/chats');
+      setChats(response.data);
     } catch (error) {
       console.error("Ошибка загрузки чатов:", error);
     }
@@ -167,22 +124,18 @@ function App() {
 
       const poll = async () => {
           try {
-              const statusResponse = await fetch(`${API_BASE_URL}/v1/jobs/${jobId}/status`);
-              if (!statusResponse.ok) {
-                  throw new Error(`Polling failed with status: ${statusResponse.status}`);
-              }
-              const jobStatus = await statusResponse.json();
+              const response = await apiClient.get(`/v1/jobs/${jobId}/status`);
+              const jobStatus = response.data;
 
               setMessages(currentMessages => currentMessages.map(msg => {
-                  if (msg.jobId === jobId) { // KEY CHANGE: Find by job_id
+                  if (msg.jobId === jobId) {
                       const updatedMsg: Message = { 
                           ...msg, 
                           thinking_steps: jobStatus.thoughts,
                           content: (jobStatus.status === 'complete') ? (jobStatus.final_answer || '') : msg.content,
                           role: (jobStatus.status === 'failed') ? 'error' : msg.role,
-                          jobId: msg.jobId // Keep jobId by default
+                          jobId: msg.jobId
                       };
-                      // If the job is done, remove the jobId to make it a static message
                       if (['complete', 'failed', 'cancelled'].includes(jobStatus.status)) {
                           delete updatedMsg.jobId; 
                           if (jobStatus.status === 'failed') {
@@ -219,32 +172,26 @@ function App() {
 
     setIsLoading(true);
     setCurrentChatId(chatId);
-    setMessages([]); // Clear previous messages
+    setMessages([]);
 
     try {
-        const historyRes = await fetch(`${API_BASE_URL}/v1/chats/${chatId}`);
-        if (!historyRes.ok) throw new Error(`Failed to fetch chat history: ${historyRes.statusText}`);
-        
-        const historyData = await historyRes.json();
+        const historyRes = await apiClient.get(`/v1/chats/${chatId}`);
+        const historyData = historyRes.data;
         const historyMessages: Message[] = historyData.map((m: any, index: number) => ({
             id: `${chatId}-${index}`,
             role: m.role,
-            content: m.content || '', // Use the 'content' field from the backend
+            content: m.content || '',
             displayedContent: m.content || '',
             thinking_steps: m.thinking_steps || [],
-            sources: m.sources || [] // Defensively get sources, default to empty array
+            sources: m.sources || []
         }));
         
-        const activeJobRes = await fetch(`${API_BASE_URL}/v1/chats/${chatId}/active_job`);
-        if (!activeJobRes.ok) throw new Error(`Failed to check for active job: ${activeJobRes.statusText}`);
-
-        const { job_id } = await activeJobRes.json();
+        const activeJobRes = await apiClient.get(`/v1/chats/${chatId}/active_job`);
+        const { job_id } = activeJobRes.data;
 
         if (job_id) {
-            const jobStatusRes = await fetch(`${API_BASE_URL}/v1/jobs/${job_id}/status`);
-            if (!jobStatusRes.ok) throw new Error(`Failed to get job status for ${job_id}: ${jobStatusRes.statusText}`);
-
-            const jobStatus = await jobStatusRes.json();
+            const jobStatusRes = await apiClient.get(`/v1/jobs/${job_id}/status`);
+            const jobStatus = jobStatusRes.data;
             
             const modelMessage: Message = {
                 id: uuidv4(), role: 'model', content: '', displayedContent: '',
@@ -285,7 +232,7 @@ function App() {
     const newTitle = await showModal({ title: 'Переименовать чат', message: 'Введите новое название для этого чата.', showInput: true, inputValue: currentTitle, confirmText: 'Сохранить' });
     if (typeof newTitle === 'string' && newTitle.trim() && newTitle.trim() !== currentTitle) {
         try {
-            await fetch(`${API_BASE_URL}/v1/chats/${chatId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ new_title: newTitle.trim() }) });
+            await apiClient.put(`/v1/chats/${chatId}`, { new_title: newTitle.trim() });
             await loadChats();
         } catch (error) { console.error("Error renaming chat:", error); }
     }
@@ -295,7 +242,7 @@ function App() {
     const confirmed = await showModal({ title: 'Удалить чат?', message: 'Вы уверены, что хотите удалить этот чат? Это действие необратимо.', confirmText: 'Удалить' });
     if (confirmed) {
         try {
-            await fetch(`${API_BASE_URL}/v1/chats/${chatId}`, { method: 'DELETE' });
+            await apiClient.delete(`/v1/chats/${chatId}`);
             if (currentChatId === chatId) startNewChat();
             await loadChats();
         } catch (error) { console.error("Error deleting chat:", error); }
@@ -303,9 +250,11 @@ function App() {
   };
 
   useEffect(() => {
-    loadChats();
-    loadConfig();
-  }, []);
+    if (isAuthenticated) {
+        loadChats();
+        loadConfig();
+    }
+  }, [isAuthenticated]);
 
   const scrollToBottom = () => {
     chatContainerRef.current?.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: 'smooth' });
@@ -315,18 +264,15 @@ function App() {
     const messageText = userInput.trim();
     if (!messageText || isLoading) return;
 
-    // --- Optimistic UI Update ---
     const userMessage: Message = {
       id: `local-${uuidv4()}`,
       role: 'user',
       content: messageText,
       displayedContent: messageText,
     };
-    // Add user message to UI immediately and clear input
     setMessages(prevMessages => [...prevMessages, userMessage]);
     setUserInput('');
     setIsLoading(true);
-    // -----------------------------
 
     if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
@@ -337,37 +283,24 @@ function App() {
 
     try {
         if (isNewChat) {
-            const chatResponse = await fetch(`${API_BASE_URL}/v1/chats`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title: messageText.substring(0, 50) || "Новый чат" }),
-            });
-            if (!chatResponse.ok) throw new Error('Failed to create a new chat.');
-            
-            const newChatInfo: Chat = await chatResponse.json();
+            const response = await apiClient.post('/v1/chats', { title: messageText.substring(0, 50) || "Новый чат" });
+            const newChatInfo: Chat = response.data;
             conversationId = newChatInfo.id;
-            setCurrentChatId(conversationId); // Set the new chat as active
-            await loadChats(); // Refresh the sidebar
+            setCurrentChatId(conversationId);
+            await loadChats();
         }
 
         if (!conversationId) throw new Error("Missing conversation ID to create a job.");
 
-        // Backend job creation
-        const jobResponse = await fetch(`${API_BASE_URL}/v1/jobs`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                message: messageText, conversation_id: conversationId,
-                file_id: activeFileId, use_agent_mode: isAgentMode,
-            }),
+        const jobResponse = await apiClient.post('/v1/jobs', {
+            message: messageText, conversation_id: conversationId,
+            file_id: activeFileId, use_agent_mode: isAgentMode,
         });
         setActiveFileId(null);
-        if (!jobResponse.ok) throw new Error(`Failed to create job: ${await jobResponse.text()}`);
 
-        const { job_id } = await jobResponse.json();
+        const { job_id } = jobResponse.data;
         setCurrentJobId(job_id);
 
-        // --- Add Model Placeholder and Start Polling ---
         const modelPlaceholder: Message = {
             id: `model-${job_id}`,
             role: 'model',
@@ -378,26 +311,20 @@ function App() {
         };
         setMessages(prevMessages => [...prevMessages, modelPlaceholder]);
         startPolling(job_id, isNewChat);
-        // ---------------------------------------------
 
     } catch (error) {
         console.error('Error during message sending process:', error);
-        // Revert optimistic update on failure
         setMessages(prev => prev.filter(m => m.id !== userMessage.id)); 
-        setUserInput(messageText); // Restore user input
+        setUserInput(messageText);
         setIsLoading(false);
-        // Optionally add a temporary error message to the UI
     }
-    // NOTE: The 'finally' block is removed as setIsLoading is now handled by the polling logic.
 };
 
   const handleCancelJob = async () => {
     if (!currentJobId) return;
 
     try {
-      await fetch(`${API_BASE_URL}/v1/jobs/${currentJobId}/cancel`, {
-        method: 'POST',
-      });
+      await apiClient.post(`/v1/jobs/${currentJobId}/cancel`);
 
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
@@ -405,7 +332,6 @@ function App() {
       setIsLoading(false);
       setCurrentJobId(null);
 
-      // Reload the chat to reflect the cancelled state from history
       if (currentChatId) {
         selectChat(currentChatId);
       }
@@ -459,6 +385,18 @@ function App() {
   const handleThemeToggle = () => setTheme(theme === 'dark' ? 'light' : 'dark');
   const hasChanges = config && dirtyConfig ? JSON.stringify(config) !== JSON.stringify(dirtyConfig) : false;
 
+  if (isAuthLoading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#202123' }}>
+        <ClipLoader color="#fff" size={50} />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage />;
+  }
+
   return (
     <div className={`app-wrapper ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`} data-theme={theme}>
         {sidebarCollapsed && (<button className="sidebar-reopen-btn" onClick={() => setSidebarCollapsed(false)}><FaBars /></button>)}
@@ -486,6 +424,7 @@ function App() {
             <div>
               <button className="theme-toggle-btn" title="Сменить тему" onClick={handleThemeToggle}>{theme === 'dark' ? <FaSun /> : <FaMoon />}</button>
               <button className="settings-btn" title="Настройки" onClick={() => setIsSettingsModalOpen(true)}><FaCog /></button>
+              <button className="logout-btn" title="Выйти" onClick={logout}><FaSignOutAlt /></button>
             </div>
           </div>
         </aside>
@@ -505,7 +444,6 @@ function App() {
                                 />
                               )}
                               <p className="content">{msg.displayedContent}</p>
-                              {/* Defensive rendering of sources */}
                               {msg.sources && msg.sources.length > 0 && (
                                 <div className="message-sources">
                                   <strong>Источники: </strong>
