@@ -19,3 +19,6 @@ redis
 PySocks
 google-cloud-aiplatform
 google-ai-generativelanguage
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
