@@ -1,5 +1,3 @@
-# backend/main.py
-
 import logging
 import os
 import json
@@ -8,10 +6,8 @@ import re
 import asyncio
 from datetime import datetime
 
-# --- НОВЫЕ ИМПОРТЫ ДЛЯ АВТОРИЗАЦИИ ---
 from fastapi import Depends
 from auth import router as auth_router, get_current_active_user, User
-# --- КОНЕЦ НОВЫХ ИМПОРТОВ ---
 
 import google.generativeai as genai
 import google.generativeai.protos as gap
@@ -42,10 +38,8 @@ load_dotenv()
 
 PROXY_URL = "http://51.158.76.113:9999"
 
-# --- Redis Client Initialization ---
 redis_client = redis.Redis(host=os.getenv("REDIS_HOST", "redis"), port=6379, db=0, decode_responses=True)
 
-# --- Knowledge Base Services Initialization ---
 YANDEX_TOKEN = os.getenv("YANDEX_DISK_API_TOKEN")
 
 if YANDEX_TOKEN:
@@ -62,12 +56,10 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable not set!")
 
-# Explicitly configure clients to use REST transport with proxy
 generative_client = GenerativeServiceAsyncClient(transport="rest", client_options=ClientOptions(api_key=GEMINI_API_KEY))
 embedding_client = generative_client
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-# --- Dynamic Controller Client Initialization ---
 CONTROLLER_PROVIDER = os.getenv("CONTROLLER_PROVIDER", "openai").lower()
 CONTROLLER_API_KEY = None
 CONTROLLER_BASE_URL = None
@@ -76,7 +68,7 @@ if CONTROLLER_PROVIDER == "openrouter":
     CONTROLLER_API_KEY = os.getenv("OPENROUTER_API_KEY")
     CONTROLLER_BASE_URL = "https://openrouter.ai/api/v1"
     logger.info("Configuring Controller to use OpenRouter.")
-else: # Default to openai
+else:
     CONTROLLER_API_KEY = os.getenv("OPENAI_API_KEY")
     CONTROLLER_BASE_URL = "https://api.openai.com/v1"
     logger.info("Configuring Controller to use OpenAI.")
@@ -91,7 +83,6 @@ else:
         http_client=httpx.AsyncClient(proxies={"all://": PROXY_URL})
     )
 
-# --- Agent Tools Definition ---
 def analyze_document(file_id: str, query: str) -> str:
     logger.info(f"TOOL CALL: analyze_document for file_id: {file_id} with query: '{query}'")
     try:
@@ -115,10 +106,6 @@ def search_knowledge_base(query: str) -> str:
     return "\n".join(formatted_results)
 
 def list_all_files_summary() -> str:
-    """
-    Lists a summary of all available files in the knowledge base.
-    Returns a string with the name and ID of each file, useful for discovery.
-    """
     logger.info("TOOL CALL: list_all_files_summary")
     try:
         all_files = kb_indexer.get_all_files()
@@ -133,23 +120,16 @@ def list_all_files_summary() -> str:
         logger.error(f"Error in list_all_files_summary tool: {e}", exc_info=True)
         return f"ОШИБКА: Не удалось получить список файлов: {e}"
 
-
-# A robust retry decorator for all Google API calls
 @retry(
     wait=wait_exponential(multiplier=1, min=2, max=60),
     stop=stop_after_attempt(3),
     retry=retry_if_exception_type((ResourceExhausted, InternalServerError))
 )
 async def run_with_retry(func, *args, **kwargs):
-    """Executes an async function with a retry policy for specific API errors."""
     return await func(*args, **kwargs)
 
 
 async def determine_file_context(user_message: str, all_files: List[Dict]) -> Optional[str]:
-    """
-    Analyzes the user's message to determine if it refers to a specific file.
-    Returns the file_id if a match is found, otherwise None.
-    """
     if not all_files:
         return None
 
@@ -172,12 +152,10 @@ If the query does not refer to any specific file, respond with the exact word "N
 """
     try:
         context_model = genai.GenerativeModel('gemini-2.5-flash')
-        # Use the retry helper for the API call
         response = await run_with_retry(context_model.generate_content_async, prompt)
         
         file_id_match = response.text.strip()
         
-        # Validate that the returned ID is one of the available file IDs
         available_ids = {f.get('id') for f in all_files}
         if file_id_match in available_ids:
             logger.info(f"Context analysis determined the query refers to file_id: {file_id_match}")
@@ -192,7 +170,6 @@ If the query does not refer to any specific file, respond with the exact word "N
 
 app = FastAPI(title="Engineering Hub API", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
-# --- НОВОЕ: Подключение роутера для авторизации ---
 app.include_router(auth_router, prefix="/api", tags=["Authentication"])
 
 
@@ -219,7 +196,6 @@ HISTORY_DIR = "chat_histories"
 CONFIG_FILE = "/app_config/config.json"
 CONTROLLER_SYSTEM_PROMPT = "You are a helpful assistant."
 
-# --- Pydantic Models ---
 class AgentSettings(BaseModel):
     model_name: str
     system_prompt: str
@@ -257,7 +233,6 @@ class JobCreationResponse(BaseModel):
     job_id: str
 
 
-# --- API Endpoints ---
 def load_config() -> AppConfig:
     default_config = AppConfig(
         executor=AgentSettings(model_name='gemini-2.5-pro', system_prompt='You are a helpful assistant.'),
@@ -278,7 +253,6 @@ def load_config() -> AppConfig:
         return default_config
 
 def save_config(config: AppConfig):
-    # Ensure the directory exists before writing
     os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
         json.dump(config.model_dump(), f, indent=2, ensure_ascii=False)
@@ -340,26 +314,21 @@ async def create_chat_job(request: ChatRequest, current_user: User = Depends(get
     job_id = f"job:{uuid.uuid4()}"
     job_data = request.model_dump_json()
 
-    # --- SAVE USER MESSAGE IMMEDIATELY ---
     try:
         history_file_path = os.path.join(HISTORY_DIR, f"{request.conversation_id}.json")
         if not os.path.exists(history_file_path):
-            # This should not happen if the chat was created correctly, but as a safeguard:
             with open(history_file_path, 'w', encoding='utf-8') as f:
                 json.dump([], f)
 
         with open(history_file_path, 'r+', encoding='utf-8') as f:
             try:
-                # Read existing history
                 history = json.load(f)
                 if not isinstance(history, list): history = []
             except json.JSONDecodeError:
-                history = [] # Overwrite if file is corrupt
+                history = []
             
-            # Append ONLY the new user message
             history.append({"role": "user", "parts": [request.message]})
             
-            # Go back to the beginning of the file to overwrite
             f.seek(0)
             json.dump(history, f, indent=2, ensure_ascii=False)
             f.truncate()
@@ -367,11 +336,9 @@ async def create_chat_job(request: ChatRequest, current_user: User = Depends(get
         logger.error(f"Failed to write user message to history file {history_file_path}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to save user message.")
 
-    # --- LINK CONVERSATION TO JOB ---
-    redis_client.set(f"active_job_for_convo:{request.conversation_id}", job_id, ex=3600) # ex=3600 sets expiry to 1 hour
+    redis_client.set(f"active_job_for_convo:{request.conversation_id}", job_id, ex=3600)
     logger.info(f"Linked conversation {request.conversation_id} to active job {job_id}")
 
-    # Create initial status in a Redis Hash
     initial_status = {
         "status": "queued",
         "thoughts": json.dumps([{"type": "info", "content": "Задача поставлена в очередь..."}]),
@@ -380,7 +347,6 @@ async def create_chat_job(request: ChatRequest, current_user: User = Depends(get
     
     redis_client.hset(job_id, mapping=initial_status)
     
-    # Push the job details to the worker queue
     redis_client.lpush("job_queue", json.dumps({"job_id": job_id, "payload": job_data}))
     
     logger.info(f"Job {job_id} created and queued for conversation {request.conversation_id}.")
@@ -392,102 +358,9 @@ async def get_job_status(job_id: str, current_user: User = Depends(get_current_a
     if not job_data:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    # Deserialize the thoughts list
     job_data['thoughts'] = json.loads(job_data.get('thoughts', '[]'))
     return JSONResponse(content=job_data)
 
 @app.post("/api/v1/jobs/{job_id}/cancel", status_code=status.HTTP_200_OK)
 async def cancel_job(job_id: str, current_user: User = Depends(get_current_active_user)):
-    if not redis_client.exists(job_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-    
-    redis_client.hset(job_id, "status", "cancelled")
-    
-    logger.info(f"Job {job_id} cancellation request received and status set to 'cancelled'.")
-    return JSONResponse(content={"status": "cancellation_requested", "job_id": job_id})
-
-@app.get("/api/v1/chats/{conversation_id}/active_job", status_code=200)
-async def get_active_job_for_convo(conversation_id: str, current_user: User = Depends(get_current_active_user)):
-    job_id_key = f"active_job_for_convo:{conversation_id}"
-    job_id = redis_client.get(job_id_key)
-    
-    if not job_id:
-        return {"job_id": None}
-
-    # Also check if the job itself still exists in Redis
-    if not redis_client.exists(job_id):
-         # The link is stale, clean it up
-         redis_client.delete(job_id_key)
-         return {"job_id": None}
-         
-    return {"job_id": job_id}
-
-@app.get("/api/v1/chats/{conversation_id}")
-async def get_chat_history(conversation_id: str, current_user: User = Depends(get_current_active_user)):
-    history_file_path = os.path.join(HISTORY_DIR, f"{conversation_id}.json")
-    if not os.path.exists(history_file_path):
-        raise HTTPException(status_code=404, detail="Chat history not found.")
-    
-    try:
-        with open(history_file_path, 'r', encoding='utf-8') as f:
-            # First, read the content to see if the file is empty
-            content = f.read()
-            if not content.strip():
-                return [] # Return empty list for empty or whitespace-only files
-            # If not empty, try to parse
-            history_data = json.loads(content)
-        
-        formatted_history = []
-        for item in history_data:
-            # Robustly get content from parts
-            parts = item.get("parts", [])
-            content_text = parts[0] if parts else ""
-
-            # Ensure 'sources' key is always present, defaulting to an empty list
-            sources = item.get("sources", [])
-
-            message_data = {
-                "role": item.get("role"), 
-                "content": content_text,
-                "sources": sources # This line is critical
-            }
-
-            if 'thinking_steps' in item and item['thinking_steps']:
-                message_data['thinking_steps'] = item['thinking_steps']
-
-            formatted_history.append(message_data)
-        return formatted_history
-        
-    except json.JSONDecodeError:
-        logger.warning(f"Could not parse corrupted chat history file for conversation_id: {conversation_id}. Returning empty history.")
-        return []
-    except Exception as e:
-        logger.error(f"An unexpected error occurred while reading history for {conversation_id}: {e}", exc_info=True)
-        # For any other unexpected error, also return an empty list to prevent frontend crash
-        return []
-
-@app.delete("/api/v1/chats/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_chat(conversation_id: str, current_user: User = Depends(get_current_active_user)):
-    history_file_path = os.path.join(HISTORY_DIR, f"{conversation_id}.json")
-    title_file_path = os.path.join(HISTORY_DIR, f"{conversation_id}.title.txt")
-    if not os.path.exists(history_file_path):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
-    try:
-        os.remove(history_file_path)
-        if os.path.exists(title_file_path):
-            os.remove(title_file_path)
-    except OSError as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error deleting chat files: {e}")
-
-@app.put("/api/v1/chats/{conversation_id}")
-async def rename_chat(conversation_id: str, request: RenameRequest, current_user: User = Depends(get_current_active_user)):
-    history_file_path = os.path.join(HISTORY_DIR, f"{conversation_id}.json")
-    if not os.path.exists(history_file_path):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found, cannot rename.")
-    title_file_path = os.path.join(HISTORY_DIR, f"{conversation_id}.title.txt")
-    try:
-        with open(title_file_path, 'w', encoding='utf-8') as f:
-            f.write(request.new_title)
-    except OSError as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error writing title file: {e}")
-    return {"status": "success", "message": "Chat renamed"}
+    if not redis_client.exists
