@@ -1,4 +1,3 @@
-
 services:
   nginx:
     container_name: engineering-hub-nginx
@@ -25,12 +24,10 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      # HTTP-прокси для исходящих запросов Google и др.
       HTTP_PROXY:  "http://51.158.76.113:9999"
       HTTPS_PROXY: "http://51.158.76.113:9999"
       http_proxy:  "http://51.158.76.113:9999"
       https_proxy: "http://51.158.76.113:9999"
-      # Не проксировать внутренние сервисы/localhost
       NO_PROXY:  "localhost,127.0.0.1,nginx,frontend,db,redis,engineering-hub-nginx,engineering-hub-frontend,engineering-hub-db,engineering-hub-redis"
       no_proxy:  "localhost,127.0.0.1,nginx,frontend,db,redis,engineering-hub-nginx,engineering-hub-frontend,engineering-hub-db,engineering-hub-redis"
     extra_hosts:
