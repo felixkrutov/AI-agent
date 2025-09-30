@@ -1,19 +1,13 @@
-// frontend/src/App.tsx
-
 import React, { useState, useEffect, useRef } from 'react';
 import { ClipLoader } from 'react-spinners';
 import { FaPaperPlane, FaBars, FaTimes, FaPencilAlt, FaTrashAlt, FaSun, FaMoon, FaCog, FaSignOutAlt } from 'react-icons/fa';
 import { v4 as uuidv4 } from 'uuid';
 import AgentThoughts, { Thought } from './components/AgentThoughts';
 import './App.css';
-
-// --- ADDED: Новые импорты для авторизации ---
 import { useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import apiClient from './api/client';
-// ------------------------------------------
 
-// Интерфейсы остаются без изменений
 interface Chat { id: string; title: string; }
 interface Message { id:string; jobId?: string; role: 'user' | 'model' | 'error'; content: string; displayedContent: string; thinking_steps?: Thought[]; sources?: string[]; }
 interface ModalState { visible: boolean; title: string; message: string; showInput: boolean; inputValue: string; confirmText: string; onConfirm: (value: string | boolean | null) => void; }
@@ -21,7 +15,7 @@ interface KnowledgeBaseFile { id: string; name: string; }
 interface AgentSettings { model_name: string; system_prompt: string; }
 interface AppConfig { executor: AgentSettings; controller: AgentSettings; }
 
-const user = { username: 'Engineer' }; // Оставим пока для отображения имени
+const user = { username: 'Engineer' };
 
 function App() {
   const { isAuthenticated, isLoading: isAuthLoading, logout } = useAuth();
@@ -107,7 +101,7 @@ function App() {
     setIsSettingsModalOpen(false);
     userInputRef.current?.focus();
   };
-  
+
   const loadChats = async () => {
     try {
       const response = await apiClient.get('/v1/chats');
@@ -129,15 +123,15 @@ function App() {
 
               setMessages(currentMessages => currentMessages.map(msg => {
                   if (msg.jobId === jobId) {
-                      const updatedMsg: Message = { 
-                          ...msg, 
+                      const updatedMsg: Message = {
+                          ...msg,
                           thinking_steps: jobStatus.thoughts,
                           content: (jobStatus.status === 'complete') ? (jobStatus.final_answer || '') : msg.content,
                           role: (jobStatus.status === 'failed') ? 'error' : msg.role,
                           jobId: msg.jobId
                       };
                       if (['complete', 'failed', 'cancelled'].includes(jobStatus.status)) {
-                          delete updatedMsg.jobId; 
+                          delete updatedMsg.jobId;
                           if (jobStatus.status === 'failed') {
                               updatedMsg.content = 'Обработка задачи завершилась с ошибкой.';
                           }
@@ -185,14 +179,14 @@ function App() {
             thinking_steps: m.thinking_steps || [],
             sources: m.sources || []
         }));
-        
+
         const activeJobRes = await apiClient.get(`/v1/chats/${chatId}/active_job`);
         const { job_id } = activeJobRes.data;
 
         if (job_id) {
             const jobStatusRes = await apiClient.get(`/v1/jobs/${job_id}/status`);
             const jobStatus = jobStatusRes.data;
-            
+
             const modelMessage: Message = {
                 id: uuidv4(), role: 'model', content: '', displayedContent: '',
                 thinking_steps: jobStatus.thoughts,
@@ -227,7 +221,7 @@ function App() {
     setMessages([]);
     setActiveFileId(null);
   };
-  
+
   const handleRenameChat = async (chatId: string, currentTitle: string) => {
     const newTitle = await showModal({ title: 'Переименовать чат', message: 'Введите новое название для этого чата.', showInput: true, inputValue: currentTitle, confirmText: 'Сохранить' });
     if (typeof newTitle === 'string' && newTitle.trim() && newTitle.trim() !== currentTitle) {
@@ -314,7 +308,7 @@ function App() {
 
     } catch (error) {
         console.error('Error during message sending process:', error);
-        setMessages(prev => prev.filter(m => m.id !== userMessage.id)); 
+        setMessages(prev => prev.filter(m => m.id !== userMessage.id));
         setUserInput(messageText);
         setIsLoading(false);
     }
