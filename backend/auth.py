@@ -1,4 +1,3 @@
-# backend/auth.py
 import json
 import os
 from datetime import datetime, timedelta, timezone
@@ -10,15 +9,12 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
 
-# --- Конфигурация ---
-# ВАЖНО: Сгенерируй свой собственный ключ! Можно сгенерировать командой: openssl rand -hex 32
 SECRET_KEY = "your-super-secret-key-that-you-must-change"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # Токен живет 7 дней
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
 USERS_FILE = "users.json"
 
-# --- Утилиты для работы с паролями ---
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def verify_password(plain_password, hashed_password):
@@ -27,7 +23,6 @@ def verify_password(plain_password, hashed_password):
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-# --- Модели Pydantic ---
 class TokenData(BaseModel):
     username: Optional[str] = None
 
@@ -35,7 +30,6 @@ class User(BaseModel):
     username: str
     disabled: Optional[bool] = None
 
-# --- Загрузка и аутентификация пользователя ---
 def load_users() -> Dict[str, Any]:
     if not os.path.exists(USERS_FILE):
         return {}
@@ -50,7 +44,6 @@ def get_user(username: str) -> Optional[Dict[str, Any]]:
         return user_dict
     return None
 
-# --- Создание и проверка JWT токенов ---
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/token")
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -63,7 +56,6 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-# --- Защита эндпоинтов (Dependency) ---
 async def get_current_active_user(token: str = Depends(oauth2_scheme)) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -88,10 +80,9 @@ async def get_current_active_user(token: str = Depends(oauth2_scheme)) -> User:
         raise HTTPException(status_code=400, detail="Inactive user")
     return user
 
-# --- Роутер для эндпоинта логина ---
 router = APIRouter()
 
-@router.post("/token", include_in_schema=False) # Скрываем из авто-документации
+@router.post("/token", include_in_schema=False)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     user = get_user(form_data.username)
     if not user or not verify_password(form_data.password, user["hashed_password"]):
